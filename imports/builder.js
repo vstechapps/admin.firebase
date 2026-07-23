@@ -10,6 +10,7 @@ var include_files = [
     "style.css",
     "404.html",
     "bundle.json",
+    "CNAME",
     "firebase.config.json"
 ];
 
