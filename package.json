@@ -1,0 +1,15 @@
+{
+    "name": "app__",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "fetch": "npm install --no-bin-links",
+        "start": "node index.js",
+        "app": "node app.js",
+        "build": "node index.js --build",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC"
+}
