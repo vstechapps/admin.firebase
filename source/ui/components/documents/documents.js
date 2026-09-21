@@ -6,6 +6,7 @@ class DocumentsManager {
         this.documents = [];
         this.lastDoc = null;
         this.hasMore = false;
+        this.pageCache = [];
         var user = sessionStorage.getItem("user");
         if(user==null) {goto(""); return;}
         user = JSON.parse(user);
@@ -21,6 +22,8 @@ class DocumentsManager {
         this.searchKeyInput = document.getElementById('searchKeyInput');
         this.searchValueInput = document.getElementById('searchValueInput');
         this.searchBtn = document.getElementById('searchBtn');
+        this.copyBtn = document.getElementById('copyBtn');
+        this.pasteBtn = document.getElementById('pasteBtn');
         this.addDocumentBtn = document.getElementById('addDocumentBtn');
         this.prevPageBtn = document.getElementById('prevPage');
         this.nextPageBtn = document.getElementById('nextPage');
@@ -40,9 +43,54 @@ class DocumentsManager {
             if (event.key === 'Enter') this.loadCollection();
         });
         this.searchBtn.addEventListener('click', () => this.loadCollection());
+        this.copyBtn.addEventListener('click', () => this.copyCollection());
+        this.pasteBtn.addEventListener('click', () => this.pasteCollection());
         this.addDocumentBtn.addEventListener('click', () => this.showAddModal());
         this.prevPageBtn.addEventListener('click', () => this.changePage(-1));
         this.nextPageBtn.addEventListener('click', () => this.changePage(1));
+    }
+
+    async copyCollection() {
+        try {
+            const content = JSON.stringify({ collection: this.collection, documents: this.documents });
+            await window.navigator.clipboard.writeText(content);
+            alert(`Copied ${this.collection} collection and ${this.documents.length} documents to clipboard`);
+        } catch (error) {
+            console.error('Error copying collection:', error);
+            alert('Failed to copy collection to clipboard.');
+        }
+    }
+
+    async pasteCollection() {
+        try {
+            const content = await window.navigator.clipboard.readText();
+            const collectionData = JSON.parse(content);
+            const collection = collectionData.collection;
+            const documents = collectionData.documents;
+
+            if (!collection || !Array.isArray(documents)) {
+                alert('Clipboard content is not a valid collection.');
+                return;
+            }
+
+            Loader.show();
+            await Promise.all(documents.map(document => {
+                if (!document || !document.id) {
+                    throw new Error('A document is missing an ID.');
+                }
+                return Firebase.write(collection, document.id, document);
+            }));
+
+            this.collectionInput.value = collection;
+            this.collection = collection;
+            alert(`Updated ${collection} collection with ${documents.length} documents`);
+            await this.loadCollection();
+        } catch (error) {
+            console.error('Error pasting collection:', error);
+            alert('Failed to paste collection.');
+        } finally {
+            Loader.hide();
+        }
     }
 
     getReadOptions(extra = {}) {
@@ -71,6 +119,11 @@ class DocumentsManager {
             this.lastDoc = result.lastDoc;
             this.hasMore = result.hasMore;
             this.currentPage = 1;
+            this.pageCache = [{
+                data: this.documents,
+                lastDoc: this.lastDoc,
+                hasMore: this.hasMore
+            }];
             this.updatePagination();
             this.renderDocuments();
         } catch (error) {
@@ -88,19 +141,32 @@ class DocumentsManager {
         Loader.show();
         try {
             if (delta > 0) {
-                const result = await Firebase.read(this.collection, this.getReadOptions({
-                    lastDoc: this.lastDoc
-                }));
-                this.documents = result.data;
-                this.lastDoc = result.lastDoc;
-                this.hasMore = result.hasMore;
+                const nextPage = this.currentPage + 1;
+                const cachedPage = this.pageCache[nextPage - 1];
+                if (cachedPage) {
+                    this.documents = cachedPage.data;
+                    this.lastDoc = cachedPage.lastDoc;
+                    this.hasMore = cachedPage.hasMore;
+                } else {
+                    const result = await Firebase.read(this.collection, this.getReadOptions({
+                        lastDoc: this.lastDoc
+                    }));
+                    this.documents = result.data;
+                    this.lastDoc = result.lastDoc;
+                    this.hasMore = result.hasMore;
+                    this.pageCache.push({
+                        data: this.documents,
+                        lastDoc: this.lastDoc,
+                        hasMore: this.hasMore
+                    });
+                }
                 this.currentPage++;
             } else {
-                const result = await Firebase.read(this.collection, this.getReadOptions());
-                this.documents = result.data;
-                this.lastDoc = result.lastDoc;
-                this.hasMore = result.hasMore;
-                this.currentPage = 1;
+                const previousPage = this.pageCache[this.currentPage - 2];
+                this.documents = previousPage.data;
+                this.lastDoc = previousPage.lastDoc;
+                this.hasMore = previousPage.hasMore;
+                this.currentPage--;
             }
             this.updatePagination();
             this.renderDocuments();
